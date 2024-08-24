@@ -18,8 +18,8 @@ export function toRouteConfig(routeMeta: RouteMeta | undefined): RouteConfig {
   if (Array.isArray(meta)) {
     routeConfig.data = { ...routeConfig.data, [ROUTE_META_TAGS_KEY]: meta };
   } else if (typeof meta === 'function') {
-    routeConfig.resolve = {
-      ...routeConfig.resolve,
+    routeConfig.data = {
+      ...routeConfig.data,
       [ROUTE_META_TAGS_KEY]: meta,
     };
   }

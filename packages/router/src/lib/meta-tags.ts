@@ -1,7 +1,14 @@
 import { inject } from '@angular/core';
 import { Meta, MetaDefinition as NgMetaTag } from '@angular/platform-browser';
-import { ActivatedRouteSnapshot, NavigationEnd, Router } from '@angular/router';
+import {
+  ActivatedRouteSnapshot,
+  type MaybeAsync,
+  NavigationEnd,
+  Router,
+  RouterStateSnapshot,
+} from '@angular/router';
 import { filter } from 'rxjs/operators';
+import { firstValueFrom, isObservable } from 'rxjs';
 
 export const ROUTE_META_TAGS_KEY = Symbol(
   '@analogjs/router Route Meta Tags Key'
@@ -49,9 +56,11 @@ export function updateMetaTagsOnRouteChange(): void {
 
   router.events
     .pipe(filter((event) => event instanceof NavigationEnd))
-    .subscribe(() => {
-      const metaTagMap = getMetaTagMap(router.routerState.snapshot.root);
-
+    .subscribe(async () => {
+      const metaTagMap = await getMetaTagMap(
+        router.routerState.snapshot.root,
+        router.routerState.snapshot
+      );
       for (const metaTagSelector in metaTagMap) {
         const metaTag = metaTagMap[
           metaTagSelector as MetaTagSelector
@@ -61,12 +70,16 @@ export function updateMetaTagsOnRouteChange(): void {
     });
 }
 
-function getMetaTagMap(route: ActivatedRouteSnapshot): MetaTagMap {
+async function getMetaTagMap(
+  route: ActivatedRouteSnapshot,
+  state: RouterStateSnapshot
+): Promise<MetaTagMap> {
   const metaTagMap = {} as MetaTagMap;
   let currentRoute: ActivatedRouteSnapshot | null = route;
 
   while (currentRoute) {
-    const metaTags: MetaTag[] = currentRoute.data[ROUTE_META_TAGS_KEY] ?? [];
+    const metaTagsOrFn = currentRoute.data[ROUTE_META_TAGS_KEY];
+    const metaTags = await resolveMetaTags(metaTagsOrFn, currentRoute, state);
     for (const metaTag of metaTags) {
       metaTagMap[getMetaTagSelector(metaTag)] = metaTag;
     }
@@ -91,4 +104,17 @@ function getMetaTagSelector(metaTag: MetaTag): MetaTagSelector {
   }
 
   return CHARSET_KEY;
+}
+
+async function resolveMetaTags(
+  metaTagsOrFn: any,
+  route: ActivatedRouteSnapshot,
+  state: RouterStateSnapshot
+): Promise<MetaTag[]> {
+  if (typeof metaTagsOrFn !== 'function') {
+    return metaTagsOrFn ?? [];
+  }
+
+  const result = metaTagsOrFn(route, state) as MaybeAsync<MetaTag[]>;
+  return isObservable(result) ? firstValueFrom(result) : result;
 }
