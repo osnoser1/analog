@@ -1,7 +1,14 @@
 import { inject } from '@angular/core';
 import { Meta, MetaDefinition as NgMetaTag } from '@angular/platform-browser';
-import { ActivatedRouteSnapshot, NavigationEnd, Router } from '@angular/router';
-import { filter } from 'rxjs/operators';
+import {
+  ActivatedRouteSnapshot,
+  type MaybeAsync,
+  NavigationEnd,
+  Router,
+  RouterStateSnapshot,
+} from '@angular/router';
+import { filter, mergeMap } from 'rxjs/operators';
+import { from, isObservable, map, Observable, of } from 'rxjs';
 
 export const ROUTE_META_TAGS_KEY = Symbol(
   '@analogjs/router Route Meta Tags Key'
@@ -48,10 +55,16 @@ export function updateMetaTagsOnRouteChange(): void {
   const metaService = inject(Meta);
 
   router.events
-    .pipe(filter((event) => event instanceof NavigationEnd))
-    .subscribe(() => {
-      const metaTagMap = getMetaTagMap(router.routerState.snapshot.root);
-
+    .pipe(
+      filter((event) => event instanceof NavigationEnd),
+      mergeMap(() =>
+        getMetaTagMap(
+          router.routerState.snapshot.root,
+          router.routerState.snapshot
+        )
+      )
+    )
+    .subscribe((metaTagMap) => {
       for (const metaTagSelector in metaTagMap) {
         const metaTag = metaTagMap[
           metaTagSelector as MetaTagSelector
@@ -61,20 +74,36 @@ export function updateMetaTagsOnRouteChange(): void {
     });
 }
 
-function getMetaTagMap(route: ActivatedRouteSnapshot): MetaTagMap {
-  const metaTagMap = {} as MetaTagMap;
-  let currentRoute: ActivatedRouteSnapshot | null = route;
+function getMetaTagMap(
+  route: ActivatedRouteSnapshot,
+  state: RouterStateSnapshot
+): Observable<MetaTagMap> {
+  return getMetaTagMapRecursive(route, state).pipe(
+    map((metaTags) =>
+      metaTags.reduce((metaTagMap, metaTag) => {
+        metaTagMap[getMetaTagSelector(metaTag)] = metaTag;
+        return metaTagMap;
+      }, {} as MetaTagMap)
+    )
+  );
+}
 
-  while (currentRoute) {
-    const metaTags: MetaTag[] = currentRoute.data[ROUTE_META_TAGS_KEY] ?? [];
-    for (const metaTag of metaTags) {
-      metaTagMap[getMetaTagSelector(metaTag)] = metaTag;
-    }
-
-    currentRoute = currentRoute.firstChild;
-  }
-
-  return metaTagMap;
+function getMetaTagMapRecursive(
+  route: ActivatedRouteSnapshot,
+  state: RouterStateSnapshot
+): Observable<MetaTag[]> {
+  const metaTagsOrFn = route.data[ROUTE_META_TAGS_KEY];
+  const metaTags$ = resolveMetaTags(metaTagsOrFn, route, state);
+  return metaTags$.pipe(
+    mergeMap((metaTags) => {
+      if (route.firstChild) {
+        return getMetaTagMapRecursive(route.firstChild, state).pipe(
+          map((childMetaTags) => [...metaTags, ...childMetaTags])
+        );
+      }
+      return of(metaTags);
+    })
+  );
 }
 
 function getMetaTagSelector(metaTag: MetaTag): MetaTagSelector {
@@ -91,4 +120,21 @@ function getMetaTagSelector(metaTag: MetaTag): MetaTagSelector {
   }
 
   return CHARSET_KEY;
+}
+
+function resolveMetaTags(
+  metaTagsOrFn: any,
+  route: ActivatedRouteSnapshot,
+  state: RouterStateSnapshot
+): Observable<MetaTag[]> {
+  if (typeof metaTagsOrFn !== 'function') {
+    return of(metaTagsOrFn ?? []);
+  }
+
+  const result = metaTagsOrFn(route, state) as MaybeAsync<MetaTag[]>;
+  if (isObservable(result)) {
+    return result;
+  }
+
+  return 'then' in result ? from(result) : of(result);
 }

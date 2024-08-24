@@ -8,7 +8,16 @@ import { ProductAlertsComponent } from '../product-alerts/product-alerts.compone
 import { load } from './(home).server';
 
 export const routeMeta: RouteMeta = {
-  title: 'Product List',
+  meta: (route) => {
+    const description = `${
+      route.data['load']['products'].length ?? 0
+    } products found`;
+
+    return [
+      { name: 'description', content: description },
+      { property: 'og:description', content: description },
+    ];
+  },
 };
 
 @Component({

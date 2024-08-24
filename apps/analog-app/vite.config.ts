@@ -31,12 +31,7 @@ export default defineConfig(({ mode }) => {
         apiPrefix: 'api',
         additionalPagesDirs: ['/libs/shared/feature'],
         additionalAPIDirs: ['/libs/shared/feature/src/api'],
-        prerender: {
-          routes: ['/', '/cart'],
-          sitemap: {
-            host: base,
-          },
-        },
+        nitro: { routeRules: { '/': { prerender: false } } },
         vite: {
           inlineStylesExtension: 'scss',
         },
